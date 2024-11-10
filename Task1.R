@@ -2,20 +2,14 @@ library(corrplot) # for plotting correlation matrix
 library(ggplot2)
 library(leaps)  # for best subset selection
 library(gridExtra)  # for combining plots
+library(glmnet)  # for ridge regression
 
 # import data
 data <- read.csv('data_task1.csv')
 data <- data[,-1]
-
-# scale data, make sure that mean is 0 and standard deviation is 1
-# # define Min-Max function
-# normalization <- function(x) {
-#   return((x - min(x)) / (max(x) - min(x)))
-# }
-
 feature <- data[,-1]
-scaledFeature <- data.frame(scale(feature))
-scaledData <- data.frame(cbind(DV=data$DV, scaledFeature))
+scaledFeature <- data.frame(scale(feature)) # without label
+scaledData <- data.frame(cbind(DV=data$DV, scaledFeature))  # with label
 
 # correlation matrix, representing linear relationship
 corrMat <- cor(scaledData)
@@ -28,6 +22,81 @@ corrplot(corrMat,
          order = "original")
 # 3 pairs of features have high correlation, which may cause multicollinearity.
 # TC-LDL, HDL-APOA1, WBC-NEU
+
+# Divide into training and testing sets
+set.seed(2024)
+# split the data into training and testing sets
+trainIndex <- sample(1:nrow(data), 0.7*nrow(data))
+trainFea <- scaledFeature[trainIndex,]
+trainLabel <- scaledData[trainIndex,1]
+testFea <- scaledFeature[-trainIndex,]
+testLabel <- scaledData[-trainIndex,1]
+
+
+x = as.matrix(trainFea) # transfer the data frame to matrix
+y = as.matrix(trainLabel)
+# Linear Regression
+linear_reg = lm(y ~ ., data = trainFea)
+
+# Stepwise by AIC
+stepwise_reg = step(linear_reg, direction = "both",trace = 0)
+
+#Ridge Regression
+
+ridgefit <- glmnet(x, y, alpha = 0, standardize = TRUE)
+plot(ridgefit, xvar = "lambda")
+# cross-validation
+ridgecv <- cv.glmnet(x, y, alpha = 0,nfolds = 10) # 10-fold cross-validation
+plot(ridgecv)
+# coef(ridgecv)
+best_lambda <- ridgecv$lambda.min
+ridgefit_best <- glmnet(x, y, alpha = 0, lambda = best_lambda)
+# coef(ridgefit_best)
+important_features <- which(abs(coef(ridgefit_best)[-1]) > 0.01) # 根据阈值选择特征
+
+# Lasso Regression
+lassofit <- glmnet(x, y, alpha = 1, standardize = TRUE)
+plot(lassofit, xvar = "lambda")
+# cross-validation
+set.seed(1)
+lassocv <- cv.glmnet(x, y, alpha = 1,nfolds = 10) # 10-fold cross-validation
+plot(lassocv)
+
+# predict
+pre_linear <- predict(linear_reg, testFea)
+pre_stepwise <- predict(stepwise_reg, testFea)
+pre_ridge <- predict(ridgefit, newx = as.matrix(testFea))
+pre_lasso <- predict(lassofit, newx = as.matrix(testFea))
+# 将预测结果转换为01分类类型
+pre_linear <- ifelse(pre_linear > 0.5, 1, 0)
+pre_stepwise <- ifelse(pre_stepwise > 0.5, 1, 0)
+pre_ridge <- ifelse(pre_ridge > 0.5, 1, 0)
+pre_lasso <- ifelse(pre_lasso > 0.5, 1, 0)
+
+# 计算评估指标：准确率、精确率、召回率、F1值、AUC、ROC曲线
+
+#calculate the accuracy
+accuracy_linear <- sum(pre_linear == testLabel) / length(testLabel)
+print(accuracy_linear)
+accuracy_stepwise <- sum(pre_stepwise == testLabel) / length(testLabel)
+print(accuracy_stepwise)
+accuracy_ridge <- sum(pre_ridge == testLabel) / length(testLabel)
+print(accuracy_ridge)
+accuracy_lasso <- sum(pre_lasso == testLabel) / length(testLabel)
+print(accuracy_lasso)
+
+
+
+# confusion matrix
+confusion_matrix_linear <- table(pre_linear, testLabel)
+confusion_matrix_stepwise <- table(pre_stepwise, testLabel)
+confusion_matrix_ridge <- table(pre_ridge, testLabel)
+confusion_matrix_lasso <- table(pre_lasso, testLabel)
+
+
+
+
+
 
 #### PCA ####
 pca_result <- prcomp(scaledFeature, center = TRUE, scale. = TRUE)
@@ -50,12 +119,7 @@ n_components
 pca_feature <- data.frame(pca_result$x[, 1:n_components])
 pca_data <- data.frame(cbind(DV=data$DV, pca_feature))
 
-# # 画出带标签的散点图
-# ggplot(pca_data, aes(x = PC3, y = PC2, color = DV)) +
-#   geom_point() +
-#   labs(title = "PCA - First Two Principal Components")
-
-
+#### Stepwise Regression ####
 
 
 # tcldl <- data.frame(TC=scaledData$TC, LDL=scaledData$LDL)
@@ -107,12 +171,7 @@ pca_data <- data.frame(cbind(DV=data$DV, pca_feature))
 
 
 
-# set the ramdom seed
-set.seed(2024)
-# split the data into training and testing sets
-trainIndex <- sample(1:nrow(data), 0.7*nrow(data))
-trainData <- data[trainIndex,]
-testData <- data[-trainIndex,]
+
 
 # best subset selection
 m1 <- regsubsets(DV~., data = trainData, nvmax = 18)
@@ -169,4 +228,8 @@ data.frame(
   CP = which.min(resm3$cp),
   BIC = which.min(resm3$bic)
 )
+
+
+
+
 
