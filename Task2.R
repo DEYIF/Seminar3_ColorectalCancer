@@ -4,6 +4,7 @@ library(MASS)
 library(car)
 library(ggplot2)
 library(gridExtra)
+library(nnet)
 
 # 读取数据
 data <- read.csv("data_task2.csv")
@@ -121,3 +122,12 @@ newdata <- expand.grid(
 
 # 预测概率
 pred_probs <- predict(model, newdata, type = "probs")
+
+
+# multinom Logistic Regression
+model <- multinom(Stage ~ Age + Ethnicity + Partner + Site, data = data)
+summary(model)
+z_values <- summary(model)$coefficients / summary(model)$standard.errors
+p_values <- (1 - pnorm(abs(z_values), 0, 1)) * 2
+p_values
+z_values
